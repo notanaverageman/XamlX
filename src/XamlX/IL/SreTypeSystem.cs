@@ -479,7 +479,7 @@ namespace XamlX.IL
 
             public IXamlLocal DefineLocal(IXamlType type)
             {
-                return new SreLocal(_ilg.DeclareLocal(((SreType) type).Type));
+                return new SreLocal(_ilg.DeclareLocal(((SreType) type).Type), type);
             }
 
             public IXamlLabel DefineLabel()
@@ -538,10 +538,12 @@ namespace XamlX.IL
             class SreLocal : IXamlLocal
             {
                 public LocalBuilder Local { get; }
+                public IXamlType XamlType { get; }
 
-                public SreLocal(LocalBuilder local)
+                public SreLocal(LocalBuilder local, IXamlType xamlType)
                 {
                     Local = local;
+                    XamlType = xamlType;
                 }
             }
         }

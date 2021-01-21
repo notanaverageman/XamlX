@@ -24,14 +24,16 @@ namespace XamlX.IL.Emitters
                 throw new XamlLoadException("Unable to find default constructor and no non-default one is specified",
                     n);
             
-            for (var c = 0; c < n.Arguments.Count; c++)
+            using (codeGen.EmitNewObjectMarker())
             {
-                context.Emit(n.Arguments[c], codeGen, ctor.Parameters[c]);
+                for (var c = 0; c < n.Arguments.Count; c++)
+                {
+                    context.Emit(n.Arguments[c], codeGen, ctor.Parameters[c]);
+                }
+
+                var gen = codeGen
+                    .Emit(OpCodes.Newobj, ctor);
             }
-
-            var gen = codeGen
-                .Emit(OpCodes.Newobj, ctor);
-
 
             return XamlILNodeEmitResult.Type(0, type);
         }

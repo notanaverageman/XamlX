@@ -76,6 +76,9 @@ namespace XamlX.Compiler
         protected abstract XamlEmitContext<TBackendEmitter, TEmitResult> InitCodeGen(
             IFileSource file,
             Func<string, IXamlType, IXamlTypeBuilder<TBackendEmitter>> createSubType,
-            TBackendEmitter codeGen, XamlRuntimeContext<TBackendEmitter, TEmitResult> context, bool needContextLocal);
+            TBackendEmitter codeGen,
+            XamlRuntimeContext<TBackendEmitter, TEmitResult> context,
+            bool needContextLocal,
+            bool registerHotReload);
     }
 }

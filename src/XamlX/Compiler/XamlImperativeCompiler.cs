@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Text;
 using XamlX.Ast;
 using XamlX.Emit;
+using XamlX.IL;
 using XamlX.Transform;
 using XamlX.Transform.Transformers;
 using XamlX.TypeSystem;
@@ -55,35 +56,51 @@ namespace XamlX.Compiler
                 new[] { _configuration.TypeMappings.ServiceProvider }, name, isPublic, true, false);
         }
 
-        public void Compile(XamlDocument doc, IXamlTypeBuilder<TBackendEmitter> typeBuilder, IXamlType contextType,
-            string populateMethodName, string createMethodName, string namespaceInfoClassName,
-            string baseUri, IFileSource fileSource)
+        public List<RecordingIlEmitter.RecordedInstruction> Compile(
+            XamlDocument doc,
+            IXamlTypeBuilder<TBackendEmitter> typeBuilder,
+            IXamlType contextType,
+            string populateMethodName,
+            string createMethodName,
+            string namespaceInfoClassName,
+            string baseUri,
+            IFileSource fileSource)
         {
-            var rootGrp = (XamlValueWithManipulationNode)doc.Root;
-            Compile(doc, contextType,
+            return Compile(
+                doc,
+                contextType,
                 DefinePopulateMethod(typeBuilder, doc, populateMethodName, true),
-                createMethodName == null ?
-                    null :
-                    DefineBuildMethod(typeBuilder, doc, createMethodName, true),
-                _configuration.TypeMappings.XmlNamespaceInfoProvider == null ?
-                    null :
-                    typeBuilder.DefineSubType(_configuration.WellKnownTypes.Object,
-                        namespaceInfoClassName, false),
+                createMethodName == null
+                    ? null
+                    : DefineBuildMethod(typeBuilder, doc, createMethodName, true),
+                _configuration.TypeMappings.XmlNamespaceInfoProvider == null
+                    ? null
+                    : typeBuilder.DefineSubType(_configuration.WellKnownTypes.Object, namespaceInfoClassName, true),
                 (name, bt) => typeBuilder.DefineSubType(bt, name, false),
-                baseUri, fileSource);
+                baseUri,
+                fileSource);
         }
 
-        public void Compile(XamlDocument doc, IXamlType contextType,
-            IXamlMethodBuilder<TBackendEmitter> populateMethod, IXamlMethodBuilder<TBackendEmitter> buildMethod,
+        public List<RecordingIlEmitter.RecordedInstruction> Compile(
+            XamlDocument doc,
+            IXamlType contextType,
+            IXamlMethodBuilder<TBackendEmitter> populateMethod,
+            IXamlMethodBuilder<TBackendEmitter> buildMethod,
             IXamlTypeBuilder<TBackendEmitter> namespaceInfoBuilder,
             Func<string, IXamlType, IXamlTypeBuilder<TBackendEmitter>> createClosure,
-            string baseUri, IFileSource fileSource)
+            string baseUri,
+            IFileSource fileSource)
         {
             var rootGrp = (XamlValueWithManipulationNode)doc.Root;
             var rootType = rootGrp.Type.GetClrType();
             var context = CreateRuntimeContext(doc, contextType, namespaceInfoBuilder, baseUri, rootType);
 
-            CompilePopulate(fileSource, rootGrp.Manipulation, createClosure, populateMethod.Generator, context);
+            var populateInstructions = CompilePopulate(
+                fileSource,
+                rootGrp.Manipulation,
+                createClosure,
+                populateMethod.Generator,
+                context);
 
             if (buildMethod != null)
             {
@@ -91,20 +108,30 @@ namespace XamlX.Compiler
             }
 
             namespaceInfoBuilder?.CreateType();
+
+            return populateInstructions;
         }
 
-        protected abstract void CompilePopulate(IFileSource fileSource, IXamlAstManipulationNode manipulation,
+        protected abstract List<RecordingIlEmitter.RecordedInstruction> CompilePopulate(
+            IFileSource fileSource,
+            IXamlAstManipulationNode manipulation,
             Func<string, IXamlType, IXamlTypeBuilder<TBackendEmitter>> createSubType,
-            TBackendEmitter codeGen, XamlRuntimeContext<TBackendEmitter, TEmitResult> context);
+            TBackendEmitter codeGen,
+            XamlRuntimeContext<TBackendEmitter, TEmitResult> context);
 
         protected abstract void CompileBuild(
             IFileSource fileSource,
-            IXamlAstValueNode rootInstance, Func<string, IXamlType, IXamlTypeBuilder<TBackendEmitter>> createSubType,
-            TBackendEmitter codeGen, XamlRuntimeContext<TBackendEmitter, TEmitResult> context,
+            IXamlAstValueNode rootInstance,
+            Func<string, IXamlType, IXamlTypeBuilder<TBackendEmitter>> createSubType,
+            TBackendEmitter codeGen,
+            XamlRuntimeContext<TBackendEmitter, TEmitResult> context,
             IXamlMethod compiledPopulate);
 
         protected abstract XamlRuntimeContext<TBackendEmitter, TEmitResult> CreateRuntimeContext(
-            XamlDocument doc, IXamlType contextType,
-            IXamlTypeBuilder<TBackendEmitter> namespaceInfoBuilder, string baseUri, IXamlType rootType);
+            XamlDocument doc,
+            IXamlType contextType,
+            IXamlTypeBuilder<TBackendEmitter> namespaceInfoBuilder,
+            string baseUri,
+            IXamlType rootType);
     }
 }

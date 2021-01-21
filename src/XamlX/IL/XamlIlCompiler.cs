@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection.Emit;
 using XamlX.Ast;
 using XamlX.Transform;
@@ -56,18 +57,27 @@ namespace XamlX.IL
             IFileSource file,
             Func<string, IXamlType, IXamlTypeBuilder<IXamlILEmitter>> createSubType,
             IXamlILEmitter codeGen, XamlRuntimeContext<IXamlILEmitter, XamlILNodeEmitResult> context,
-            bool needContextLocal)
+            bool needContextLocal,
+            bool registerHotReload)
         {
             IXamlLocal contextLocal = null;
 
+            if (registerHotReload && file != null)
+            {
+                RegisterHotReload(file, codeGen, context);
+            }
+
             if (needContextLocal)
             {
-                contextLocal = codeGen.DefineLocal(context.ContextType);
-                // Pass IService provider as the first argument to context factory
-                codeGen
-                    .Emit(OpCodes.Ldarg_0);
-                context.Factory(codeGen);
-                codeGen.Emit(OpCodes.Stloc, contextLocal);
+                using (codeGen.EmitContextInitializationMarker())
+                {
+                    contextLocal = codeGen.DefineLocal(context.ContextType);
+                    // Pass IService provider as the first argument to context factory
+                    codeGen
+                        .Emit(OpCodes.Ldarg_0);
+                    context.Factory(codeGen);
+                    codeGen.Emit(OpCodes.Stloc, contextLocal);
+                }
             }
 
             var emitContext = new ILEmitContext(codeGen, _configuration,
@@ -75,15 +85,52 @@ namespace XamlX.IL
                 file, Emitters);
             return emitContext;
         }
-        
+
+        private static void RegisterHotReload(
+            IFileSource file,
+            IXamlILEmitter codeGen,
+            XamlRuntimeContext<IXamlILEmitter, XamlILNodeEmitResult> context)
+        {
+            var watcherType = codeGen.TypeSystem.FindType("Avalonia.Markup.Xaml.HotReload.HotReloadWatcher");
+
+            if (watcherType != null)
+            {
+                var register = watcherType
+                    .FindMethod(m => m.Name == "Register")
+                    .MakeGenericMethod(new[] { context.ContextType.GenericArguments.First() });
+
+                codeGen.Emit(OpCodes.Ldstr, file.FilePath.Replace("/", "\\"));
+                codeGen.EmitCall(register);
+            }
+
+            var objectStorageType = codeGen.TypeSystem.FindType("Avalonia.Markup.Xaml.HotReload.ObjectStorage");
+
+            if (objectStorageType != null)
+            {
+                var register = objectStorageType.FindMethod(m => m.Name == "RegisterLiveObject");
+
+                codeGen.Emit(OpCodes.Ldarg_1);
+                codeGen.Emit(OpCodes.Ldstr, file.FilePath.Replace("/", "\\"));
+                codeGen.EmitCall(register);
+            }
+        }
+
         protected override void CompileBuild(
             IFileSource fileSource,
-            IXamlAstValueNode rootInstance, Func<string, IXamlType, IXamlTypeBuilder<IXamlILEmitter>> createSubType,
-            IXamlILEmitter codeGen, XamlRuntimeContext<IXamlILEmitter, XamlILNodeEmitResult> context,
+            IXamlAstValueNode rootInstance,
+            Func<string, IXamlType, IXamlTypeBuilder<IXamlILEmitter>> createSubType,
+            IXamlILEmitter codeGen,
+            XamlRuntimeContext<IXamlILEmitter, XamlILNodeEmitResult> context,
             IXamlMethod compiledPopulate)
         {
             var needContextLocal = !(rootInstance is XamlAstNewClrObjectNode newObj && newObj.Arguments.Count == 0);
-            var emitContext = InitCodeGen(fileSource, createSubType, codeGen, context, needContextLocal);
+            var emitContext = InitCodeGen(
+                fileSource,
+                createSubType,
+                codeGen,
+                context,
+                needContextLocal,
+                false);
 
             var rv = codeGen.DefineLocal(rootInstance.Type.GetClrType());
             emitContext.Emit(rootInstance, codeGen, rootInstance.Type.GetClrType());
@@ -99,15 +146,24 @@ namespace XamlX.IL
         /// <summary>
         /// void Populate(IServiceProvider sp, T target);
         /// </summary>
-        protected override void CompilePopulate(IFileSource fileSource, IXamlAstManipulationNode manipulation,
+        protected override List<RecordingIlEmitter.RecordedInstruction> CompilePopulate(
+            IFileSource fileSource,
+            IXamlAstManipulationNode manipulation,
             Func<string, IXamlType, IXamlTypeBuilder<IXamlILEmitter>> createSubType,
-            IXamlILEmitter codeGen, XamlRuntimeContext<IXamlILEmitter, XamlILNodeEmitResult> context)
+            IXamlILEmitter codeGen,
+            XamlRuntimeContext<IXamlILEmitter, XamlILNodeEmitResult> context)
         {
-            // Uncomment to inspect generated IL in debugger
-            //codeGen = new RecordingIlEmitter(codeGen);
-            var emitContext = InitCodeGen(fileSource, createSubType, codeGen, context, true);
+            var recordingCodeGen = new RecordingIlEmitter(codeGen);
+            
+            var emitContext = InitCodeGen(
+                fileSource,
+                createSubType,
+                recordingCodeGen,
+                context,
+                true,
+                true);
 
-            codeGen
+            recordingCodeGen
                 .Emit(OpCodes.Ldloc, emitContext.ContextLocal)
                 .Emit(OpCodes.Ldarg_1)
                 .Emit(OpCodes.Stfld, context.RootObjectField)
@@ -115,8 +171,10 @@ namespace XamlX.IL
                 .Emit(OpCodes.Ldarg_1)
                 .Emit(OpCodes.Stfld, context.IntermediateRootObjectField)
                 .Emit(OpCodes.Ldarg_1);
-            emitContext.Emit(manipulation, codeGen, null);
-            codeGen.Emit(OpCodes.Ret);
+            emitContext.Emit(manipulation, recordingCodeGen, null);
+            recordingCodeGen.Emit(OpCodes.Ret);
+            
+            return recordingCodeGen.Instructions;
         }
 
         protected override XamlRuntimeContext<IXamlILEmitter, XamlILNodeEmitResult> CreateRuntimeContext(

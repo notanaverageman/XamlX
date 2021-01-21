@@ -46,20 +46,23 @@ namespace XamlX.Transform.Transformers
             public IReadOnlyList<IXamlType> Parameters { get; }
             public void Emit(IXamlILEmitter emitter)
             {
-                var locals = new Stack<XamlLocalsPool.PooledLocal>();
-                // Save all "setter" parameters
-                for (var c = Parameters.Count - 1; c >= 0; c--)
+                using (emitter.EmitAddChildMarker(TargetType.FullName, _getter.Name))
                 {
-                    var loc = emitter.LocalsPool.GetLocal(Parameters[c]);
-                    locals.Push(loc);
-                    emitter.Stloc(loc.Local);
-                }
+                    var locals = new Stack<XamlLocalsPool.PooledLocal>();
+                    // Save all "setter" parameters
+                    for (var c = Parameters.Count - 1; c >= 0; c--)
+                    {
+                        var loc = emitter.LocalsPool.GetLocal(Parameters[c]);
+                        locals.Push(loc);
+                        emitter.Stloc(loc.Local);
+                    }
 
-                emitter.EmitCall(_getter);
-                while (locals.Count>0)
-                    using (var loc = locals.Pop())
-                        emitter.Ldloc(loc.Local);
-                emitter.EmitCall(_adder, true);
+                    emitter.EmitCall(_getter);
+                    while (locals.Count > 0)
+                        using (var loc = locals.Pop())
+                            emitter.Ldloc(loc.Local);
+                    emitter.EmitCall(_adder, true);
+                }
             }
         }
     }

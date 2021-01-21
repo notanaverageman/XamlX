@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Reflection.Emit;
 using XamlX.Ast;
 using XamlX.Emit;
@@ -52,13 +54,17 @@ namespace XamlX.IL.Emitters
             if (setters.Count == 1 || isValueType)
             {
                 var setter = an.PossibleSetters.First();
-                context.Emit(value, codeGen, setter.Parameters.Last());
-                context.Emit(setter, codeGen);
+
+                using (codeGen.EmitSetPropertyMarker(setter))
+                {
+                    context.Emit(value, codeGen, setter.Parameters.Last());
+                    context.Emit(setter, codeGen);
+                }
             }
             else
             {
                 var checkedTypes = new List<IXamlType>();
-                IXamlLabel exit = codeGen.DefineLabel();
+                var exit = codeGen.DefineLabel();
                 IXamlLabel next = null;
                 var hadJumps = false;
                 context.Emit(value, codeGen, value.Type.GetClrType());
